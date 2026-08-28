@@ -149,6 +149,7 @@ cdaf generate ./long-footage --chunk-duration 180 --parallel 4
 
 # Model catalog & pricing table
 cdaf models
+cdaf models --refresh                   # sync prices from OpenRouter into a 7-day local cache
 
 # Verification & Inspection (zero external dependencies)
 cdaf status ./footage                   # FRESH / STALE / MISSING report
@@ -170,7 +171,7 @@ Flags:
 - `cdaf models`: Display all model aliases, full identifiers, and per-token pricing
 
 Cost Tracking:
-Generated sidecars include estimated cost and token metrics in the header (`cost: $0.0018`, `prompt_tokens: 12045`, `output_tokens: 450`). Costs are estimates from a built-in pricing table that can drift from provider pricing. `validate`/`read`/`status` need **no dependencies and no API key**. `cdaf read` refuses to print a stale sidecar.
+Generated sidecars include estimated cost and token metrics in the header (`cost: $0.0018`, `prompt_tokens: 12045`, `output_tokens: 450`). Costs are estimates from a built-in pricing table that can drift from provider pricing. `cdaf models --refresh` syncs live rates from OpenRouter's public API into `~/.cache/cdaf/pricing.json` (7-day TTL) and later runs prefer those. That refresh is the only pricing code that touches the network — generating a sidecar never does, whichever provider you use. Unknown models omit the cost header rather than guess a rate. `validate`/`read`/`status` need **no dependencies and no API key**. `cdaf read` refuses to print a stale sidecar.
 
 ## 🤖 Agent Skill
 

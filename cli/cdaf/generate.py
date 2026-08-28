@@ -23,6 +23,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from . import pricing as pricing_cache
 from .probe import probe, probe_duration_seconds
 from .sidecar import SPEC_VERSION, Sidecar, hash_file
 
@@ -201,6 +202,23 @@ def load_dotenv_if_present() -> None:
         pass
 
 
+def resolve_pricing(model: str) -> tuple[float, float] | None:
+    """Per-million (prompt, completion) rates for a model, or None if unknown.
+
+    Prefers a price synced by `cdaf models --refresh`, then the static table.
+    Never makes a network request: the refresh command is the only pricing code
+    that talks to OpenRouter, so `cdaf generate` stays offline-equivalent no
+    matter which provider is in use.
+    """
+    try:
+        synced = pricing_cache.lookup(model)
+    except Exception:
+        synced = None  # a broken cache must never block generation
+    if synced is not None:
+        return synced
+    return pricing_cache.match_price(model, MODEL_PRICING)
+
+
 def calculate_cost(model: str, prompt_tokens: int | None, output_tokens: int | None) -> float | None:
     """Estimate total USD cost for a model run given prompt and output token counts."""
     if prompt_tokens is None and output_tokens is None:
@@ -208,12 +226,7 @@ def calculate_cost(model: str, prompt_tokens: int | None, output_tokens: int | N
     pt = prompt_tokens or 0
     ot = output_tokens or 0
 
-    pricing = MODEL_PRICING.get(model)
-    if pricing is None:
-        for k, v in MODEL_PRICING.items():
-            if k in model:
-                pricing = v
-                break
+    pricing = resolve_pricing(model)
     if pricing is None:
         return None  # unknown model: omit the cost header rather than invent a price
 

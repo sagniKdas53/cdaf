@@ -74,20 +74,38 @@ def _sidecar_state(video: Path) -> str:
 
 def cmd_models(args: argparse.Namespace) -> int:
     """List available model aliases, pricing, and recommendations."""
+    from . import pricing as pricing_cache
     from .generate import MODEL_ALIASES, MODEL_PRICING
+
+    if getattr(args, "refresh", False):
+        if pricing_cache.requests is None:
+            print(
+                "error: --refresh needs the requests package; "
+                'install it with pip install "cdaf[openrouter]"',
+                file=sys.stderr,
+            )
+            return 1
+        targets = sorted(set(MODEL_ALIASES.values()))
+        print(f"Syncing pricing for {len(targets)} models from OpenRouter...")
+        results = pricing_cache.refresh(targets, force=True)
+        priced = sum(1 for v in results.values() if v is not None)
+        print(f"  {priced}/{len(targets)} priced, cached at {pricing_cache.cache_path()}\n")
 
     print("CDAF Supported Models & Aliases\n")
     print(f"{'Alias / Short Name':<20} | {'Full Model Identifier':<42} | {'Input $/1M':<10} | {'Output $/1M':<10}")
     print("-" * 90)
+    synced = pricing_cache.load_prices()  # one cache read for the whole table
+    synced_rows = 0
     for alias, full in sorted(MODEL_ALIASES.items()):
-        pricing = None
-        for k, v in MODEL_PRICING.items():
-            if k in full:
-                pricing = v
-                break
-        in_p = f"${pricing[0]:.2f}" if pricing else "N/A"
-        out_p = f"${pricing[1]:.2f}" if pricing else "N/A"
+        is_synced = full.lower() in synced
+        synced_rows += is_synced
+        pricing = synced[full.lower()] if is_synced else pricing_cache.match_price(full, MODEL_PRICING)
+        mark = "*" if is_synced else ""
+        in_p = f"${pricing[0]:.2f}{mark}" if pricing else "N/A"
+        out_p = f"${pricing[1]:.2f}{mark}" if pricing else "N/A"
         print(f"{alias:<20} | {full:<42} | {in_p:<10} | {out_p:<10}")
+    if synced_rows:
+        print("\n* synced from OpenRouter; unmarked rows come from the built-in table.")
 
     print("\nRecommended for General Video:")
     print("  --model flash-3.7       (Google Gemini 3.7 Flash - latest, fast, native video)")
@@ -273,6 +291,11 @@ def main(argv: list[str] | None = None) -> int:
     g.set_defaults(func=cmd_generate)
 
     m = sub.add_parser("models", help="list recommended models, aliases, and pricing")
+    m.add_argument(
+        "--refresh",
+        action="store_true",
+        help="sync pricing from OpenRouter into a local 7-day cache (the only pricing network call)",
+    )
     m.set_defaults(func=cmd_models)
 
     v = sub.add_parser("validate", help="check one sidecar is well-formed and fresh")
