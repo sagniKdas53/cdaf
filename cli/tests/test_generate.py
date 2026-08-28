@@ -1,11 +1,21 @@
 """Tests for video description generation with OpenRouter, Gemini, chunking, and parallelism."""
 
 import base64
+import contextlib
 import os
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+
+@contextlib.contextmanager
+def temp_video(suffix=".mp4", data=b"dummy content"):
+    """A real closed file on disk (NamedTemporaryFile stays locked on Windows)."""
+    with tempfile.TemporaryDirectory() as d:
+        p = Path(d) / f"clip{suffix}"
+        p.write_bytes(data)
+        yield p
 
 from cdaf.generate import (
     GenerationError,
@@ -197,19 +207,15 @@ action, climax
 
 class TestVideoDataUrl(unittest.TestCase):
     def test_video_data_url(self):
-        with tempfile.NamedTemporaryFile(suffix=".mp4") as f:
-            f.write(b"fake video bytes")
-            f.flush()
-            url = _video_data_url(Path(f.name))
+        with temp_video(data=b"fake video bytes") as p:
+            url = _video_data_url(p)
             self.assertTrue(url.startswith("data:video/mp4;base64,"))
             payload_b64 = url.split(",", 1)[1]
             self.assertEqual(base64.b64decode(payload_b64), b"fake video bytes")
 
     def test_mkv_mime(self):
-        with tempfile.NamedTemporaryFile(suffix=".mkv") as f:
-            f.write(b"fake mkv bytes")
-            f.flush()
-            url = _video_data_url(Path(f.name))
+        with temp_video(suffix=".mkv", data=b"fake mkv bytes") as p:
+            url = _video_data_url(p)
             self.assertTrue(url.startswith("data:video/x-matroska;base64,"))
 
 
@@ -231,12 +237,10 @@ class TestOpenRouterGeneration(unittest.TestCase):
         }
         mock_post.return_value = mock_resp
 
-        with tempfile.NamedTemporaryFile(suffix=".mp4") as f:
-            f.write(b"dummy content")
-            f.flush()
+        with temp_video() as p:
             usage = {}
             body = describe_video(
-                f.name,
+                str(p),
                 provider="openrouter",
                 model="google/gemini-2.5-flash",
                 api_key="sk-or-test",
@@ -257,18 +261,16 @@ class TestOpenRouterGeneration(unittest.TestCase):
         }
         mock_post.return_value = mock_resp
 
-        with tempfile.NamedTemporaryFile(suffix=".mp4") as f:
-            f.write(b"dummy content")
-            f.flush()
+        with temp_video() as p:
             sc = generate_sidecar(
-                f.name,
+                str(p),
                 provider="openrouter",
                 model="google/gemini-2.5-flash",
                 api_key="sk-or-test",
             )
             self.assertIsInstance(sc, Sidecar)
             self.assertEqual(sc.header.get("generator"), "google/gemini-2.5-flash")
-            self.assertEqual(sc.header.get("video"), Path(f.name).name)
+            self.assertEqual(sc.header.get("video"), p.name)
             self.assertEqual(sc.header.get("prompt_tokens"), "10000")
             self.assertEqual(sc.header.get("output_tokens"), "500")
             self.assertIn("cost", sc.header)
@@ -284,11 +286,9 @@ class TestOpenRouterGeneration(unittest.TestCase):
         }
         mock_post.return_value = mock_resp
 
-        with tempfile.NamedTemporaryFile(suffix=".mp4") as f:
-            f.write(b"dummy content")
-            f.flush()
+        with temp_video() as p:
             sc = generate_sidecar(
-                f.name,
+                str(p),
                 provider="openrouter",
                 model="google/gemini-2.5-flash",
                 api_key="sk-or-test",
@@ -309,11 +309,9 @@ class TestOpenRouterGeneration(unittest.TestCase):
         }
         mock_post.return_value = mock_resp
 
-        with tempfile.NamedTemporaryFile(suffix=".mp4") as f:
-            f.write(b"dummy content")
-            f.flush()
+        with temp_video() as p:
             sc = generate_sidecar(
-                f.name,
+                str(p),
                 provider="openrouter",
                 model="google/gemini-2.5-flash",
                 api_key="sk-or-test",
