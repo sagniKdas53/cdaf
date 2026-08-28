@@ -130,9 +130,12 @@ process.
 ## Working across a footage library
 
 - Survey coverage: `cdaf status <dir>` lists every video as FRESH/STALE/MISSING.
-- To find footage matching a need ("sunset city shots"), grep the `.cdaf` files —
-  never open the videos: search `*.cdaf` for the relevant keywords, then rank by the
-  Segments detail.
+- To find footage matching a need ("sunset city shots"), never open the videos. On a
+  library you will search more than once, run `cdaf index <dir>` once and then
+  `cdaf search "sunset city" <dir>` — it reads one JSON file and ranks the matches.
+  For a one-off lookup, grepping the `.cdaf` files directly is fine.
+- Re-run `cdaf index <dir>` after generating sidecars; the index is a snapshot, and
+  entries it marks `stale` or `orphan` were accurate only as of the time it was built.
 - Batch-fill gaps: `cdaf generate <dir>` (fresh sidecars are skipped automatically).
 
 ## What NOT to do

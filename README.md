@@ -151,6 +151,10 @@ cdaf generate ./long-footage --chunk-duration 180 --parallel 4
 cdaf models
 cdaf models --refresh                   # sync prices from OpenRouter into a 7-day local cache
 
+# Search a library without re-reading the footage (zero external dependencies)
+cdaf index ./footage                    # write footage/cdaf-index.json from the sidecars
+cdaf search "golden hour" ./footage     # rank matching clips; --json for full entries
+
 # Verification & Inspection (zero external dependencies)
 cdaf status ./footage                   # FRESH / STALE / MISSING report
 cdaf read ./footage/sunset-drone.mp4    # print the description (verifies hash first)
@@ -169,6 +173,14 @@ Flags:
 - `--force`: Regenerate sidecar even if fresh
 - `--api-key <key>`, `--base-url <url>`: Custom API credentials and OpenAI-compatible endpoints
 - `cdaf models`: Display all model aliases, full identifiers, and per-token pricing
+
+Search:
+`cdaf index ./footage` walks a tree, reads every `.cdaf` sidecar, and writes one `cdaf-index.json`
+holding each clip's summary, segments, transcript, on-screen text, and tags. `cdaf search` then
+answers from that file, so finding a shot costs a JSON read rather than another pass over the
+footage. Index entries are marked `fresh`, `stale`, `orphan` (sidecar with no video), or `invalid`.
+Freshness is size-checked by default; `cdaf index --verify` hashes each video instead. Both
+commands are stdlib-only — no API key, no dependencies.
 
 Cost Tracking:
 Generated sidecars include estimated cost and token metrics in the header (`cost: $0.0018`, `prompt_tokens: 12045`, `output_tokens: 450`). Costs are estimates from a built-in pricing table that can drift from provider pricing. `cdaf models --refresh` syncs live rates from OpenRouter's public API into `~/.cache/cdaf/pricing.json` (7-day TTL) and later runs prefer those. That refresh is the only pricing code that touches the network — generating a sidecar never does, whichever provider you use. Unknown models omit the cost header rather than guess a rate. `validate`/`read`/`status` need **no dependencies and no API key**. `cdaf read` refuses to print a stale sidecar.

@@ -7,11 +7,13 @@ Generation needs google-genai, requests, or local endpoint.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
 
 from . import __version__
+from .index import INDEX_FILENAME
 from .sidecar import (
     SidecarError,
     check_freshness,
@@ -224,6 +226,64 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0 if counts["fresh"] == total else 1
 
 
+def cmd_index(args: argparse.Namespace) -> int:
+    """Build a searchable index over a library's sidecars."""
+    from .index import build_index, default_index_path, write_index
+
+    try:
+        index = build_index(args.path, verify=args.verify)
+    except FileNotFoundError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+
+    entries = index["entries"]
+    if not entries:
+        print(f"no .cdaf sidecars found under {args.path}", file=sys.stderr)
+        return 1
+
+    out = write_index(index, args.output or default_index_path(args.path))
+    counts: dict[str, int] = {}
+    for entry in entries:
+        counts[entry["state"]] = counts.get(entry["state"], 0) + 1
+    summary = ", ".join(f"{n} {state}" for state, n in sorted(counts.items()))
+    print(f"indexed {len(entries)} sidecar(s) -> {out}")
+    print(f"  {summary}")
+    if not args.verify:
+        print("  freshness is size-checked; pass --verify to hash each video")
+    return 0
+
+
+def cmd_search(args: argparse.Namespace) -> int:
+    """Query an index built by `cdaf index`."""
+    from .index import default_index_path, load_index, search
+
+    index_path = Path(args.index) if args.index else default_index_path(args.path)
+    if not index_path.is_file():
+        print(f"error: no index at {index_path}; run `cdaf index {args.path}` first", file=sys.stderr)
+        return 1
+    try:
+        index = load_index(index_path)
+    except (ValueError, OSError) as e:
+        print(f"error: could not read {index_path}: {e}", file=sys.stderr)
+        return 1
+
+    results = search(args.query, index, limit=args.limit)
+    if args.json:
+        print(json.dumps(results, indent=2, ensure_ascii=False))
+        return 0 if results else 1
+
+    for entry in results:
+        state = "" if entry["state"] == "fresh" else f" [{entry['state']}]"
+        print(f"- {entry['video']}{state}")
+        if entry["summary"]:
+            print(f"    {entry['summary'].splitlines()[0][:160]}")
+        if entry["tags"]:
+            print(f"    tags: {', '.join(entry['tags'][:12])}")
+        print(f"    sidecar: {entry['sidecar']}")
+    print(f"\n{len(results)} result(s) for {args.query!r}")
+    return 0 if results else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="cdaf",
@@ -311,6 +371,20 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("status", help="fresh/stale/missing report for a directory tree")
     s.add_argument("path", nargs="?", default=".", help="directory to scan (default: .)")
     s.set_defaults(func=cmd_status)
+
+    i = sub.add_parser("index", help="build a searchable index from a library's sidecars")
+    i.add_argument("path", nargs="?", default=".", help="directory to scan (default: .)")
+    i.add_argument("-o", "--output", help=f"index file to write (default: <path>/{INDEX_FILENAME})")
+    i.add_argument("--verify", action="store_true", help="hash each video instead of size-checking it")
+    i.set_defaults(func=cmd_index)
+
+    q = sub.add_parser("search", help="search an index built by `cdaf index`")
+    q.add_argument("query", help="terms to match; every term must appear")
+    q.add_argument("path", nargs="?", default=".", help="indexed directory (default: .)")
+    q.add_argument("--index", help="index file to read (default: <path>/%s)" % INDEX_FILENAME)
+    q.add_argument("--limit", type=int, default=20, help="maximum results (default: 20)")
+    q.add_argument("--json", action="store_true", help="print full matching entries as JSON")
+    q.set_defaults(func=cmd_search)
 
     args = parser.parse_args(argv)
     return args.func(args)
