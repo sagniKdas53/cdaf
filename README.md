@@ -104,8 +104,8 @@ The `cdaf` Python package is split by dependency weight:
   sidecars with nothing but the standard library.
 - **Generator** ([generate.py](cli/cdaf/generate.py)) — Gemini & OpenRouter multi-provider
   support, bring-your-own-key, `brief`/`standard`/`rich` detail profiles, token-usage capture.
-  Supports any video-capable model on OpenRouter (`google/gemini-2.5-flash`, `qwen/qwen2.5-vl-72b-instruct`, etc.)
-  or direct Gemini API.
+  Supports any video-capable model on OpenRouter (`google/gemini-3.7-flash`, `qwen/qwen3.5-flash-02-23`,
+  `qwen/qwen2.5-vl-72b-instruct`, etc.) or direct Gemini API.
 - **Probe** ([probe.py](cli/cdaf/probe.py)) — optional ffprobe metadata
   (duration/resolution/fps), degrades gracefully when ffprobe is absent.
 
@@ -135,7 +135,7 @@ cdaf generate ./footage                 # describe every video, skip fresh sidec
 
 # Option B: With OpenRouter (use any model that supports video!)
 export OPENROUTER_API_KEY=your-key      # PowerShell: $env:OPENROUTER_API_KEY="your-key"
-cdaf generate ./footage --model or-flash
+cdaf generate ./footage --model or-flash-3.7
 cdaf generate ./footage --model qwen
 cdaf generate ./footage --model pixtral
 
@@ -160,7 +160,7 @@ Working from a clone instead? `pip install ./cli[generate]`.
 
 Flags:
 - `--provider auto|gemini|openrouter`: AI provider backend
-- `--model <id-or-alias>`: Model selector (`flash`, `pro`, `qwen`, `pixtral`, `llama`, `gpt4o`, etc.)
+- `--model <id-or-alias>`: Model selector (`flash-3.7`, `flash`, `pro`, `qwen`, `pixtral`, `llama`, `gpt4o`, etc.)
 - `--mode auto|screencast|meeting|demo|presentation|general`: Domain-aware prompt tuning (tracks active OS/apps/tools for screencasts, attendees/actions for meetings)
 - `--chunk-duration <seconds>`: Automatically split long video files into temporal slices and describe in parallel
 - `--parallel <N>` / `-j <N>`: Concurrency worker count for chunked processing (default: 4)

@@ -73,6 +73,13 @@ class TestProviderAndModelResolution(unittest.TestCase):
         p, m = resolve_provider_and_model(model="flash")
         self.assertEqual(m, "gemini-2.5-flash")
 
+        p, m = resolve_provider_and_model(model="flash-3.7")
+        self.assertEqual(m, "gemini-3.7-flash")
+
+        p, m = resolve_provider_and_model(model="or-flash-3.7")
+        self.assertEqual(m, "google/gemini-3.7-flash")
+        self.assertEqual(p, "openrouter")
+
         p, m = resolve_provider_and_model(model="qwen")
         self.assertEqual(m, "qwen/qwen2.5-vl-72b-instruct")
         self.assertEqual(p, "openrouter")

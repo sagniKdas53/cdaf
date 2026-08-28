@@ -90,7 +90,8 @@ def cmd_models(args: argparse.Namespace) -> int:
         print(f"{alias:<20} | {full:<42} | {in_p:<10} | {out_p:<10}")
 
     print("\nRecommended for General Video:")
-    print("  --model flash           (Google Gemini 2.5 Flash - fast, native video, cost efficient)")
+    print("  --model flash-3.7       (Google Gemini 3.7 Flash - latest, fast, native video)")
+    print("  --model flash           (Google Gemini 2.5 Flash - native video, cost efficient)")
     print("  --model pro             (Google Gemini 2.5 Pro - highest fidelity)")
     print("  --model qwen            (Qwen 2.5 VL 72B - open vision model via OpenRouter frame sampling)")
     print("\nPrices are approximate; check your provider's pricing page before relying on cost estimates.")
@@ -231,7 +232,7 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument(
         "--model",
         default=None,
-        help="model id or alias (e.g. flash, pro, qwen, pixtral, llama, gpt4o; see `cdaf models`)",
+        help="model id or alias (e.g. flash-3.7, flash, pro, qwen, pixtral, llama, gpt4o; see `cdaf models`)",
     )
     g.add_argument(
         "--mode",

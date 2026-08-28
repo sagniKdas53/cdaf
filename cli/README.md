@@ -21,7 +21,7 @@ cdaf generate ./footage
 
 # Option 2: OpenRouter (Gemini, Qwen, Pixtral, Llama, GPT-4o)
 export OPENROUTER_API_KEY=your-key
-cdaf generate ./footage --model or-flash
+cdaf generate ./footage --model or-flash-3.7
 cdaf generate ./footage --model qwen
 
 # Option 3: Local OpenAI-compatible endpoint (Ollama / vLLM)
