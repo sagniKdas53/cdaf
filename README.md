@@ -102,9 +102,10 @@ The `cdaf` Python package is split by dependency weight:
 - **Zero-dependency core** ([sidecar.py](cli/cdaf/sidecar.py)) — parse, serialize,
   chunked SHA-256, freshness checking, segment extraction. Agents and CI can validate
   sidecars with nothing but the standard library.
-- **Generator** ([generate.py](cli/cdaf/generate.py)) — Gemini Files API,
-  bring-your-own-key, `brief`/`standard`/`rich` detail profiles, token-usage capture.
-  Only imported when you generate.
+- **Generator** ([generate.py](cli/cdaf/generate.py)) — Gemini & OpenRouter multi-provider
+  support, bring-your-own-key, `brief`/`standard`/`rich` detail profiles, token-usage capture.
+  Supports any video-capable model on OpenRouter (`google/gemini-2.5-flash`, `qwen/qwen2.5-vl-72b-instruct`, etc.)
+  or direct Gemini API.
 - **Probe** ([probe.py](cli/cdaf/probe.py)) — optional ffprobe metadata
   (duration/resolution/fps), degrades gracefully when ffprobe is absent.
 
@@ -116,31 +117,60 @@ if check_freshness("footage/sunset-drone.mp4", sc) == "fresh":
     context_for_llm = sc.body
 ```
 
-The format is model-agnostic: the engine's Gemini backend is one implementation, and
-Claude/GPT/local-VLM backends slot in behind the same `Sidecar` type.
+The format is model-agnostic: use OpenRouter to access dozens of video-capable models,
+direct Gemini, or custom endpoints behind the same `Sidecar` type.
 
 ## 💻 CLI
 
-Requires Python ≥ 3.10. Bring your own Gemini API key
-([free tier available](https://aistudio.google.com/apikey)) — your footage goes to
-your key, not to us.
+Requires Python ≥ 3.10. Bring your own Gemini API key or OpenRouter API key —
+your footage goes to your key, not to us.
 
 ```bash
 pip install "cdaf[generate] @ git+https://github.com/UditAkhourii/cdaf.git#subdirectory=cli"
-export GEMINI_API_KEY=your-key          # PowerShell: $env:GEMINI_API_KEY="your-key"
 
+# Option A: With Gemini
+
+export GEMINI_API_KEY=your-key          # PowerShell: $env:GEMINI_API_KEY="your-key"
 cdaf generate ./footage                 # describe every video, skip fresh sidecars
+
+# Option B: With OpenRouter (use any model that supports video!)
+export OPENROUTER_API_KEY=your-key      # PowerShell: $env:OPENROUTER_API_KEY="your-key"
+cdaf generate ./footage --model or-flash
+cdaf generate ./footage --model qwen
+cdaf generate ./footage --model pixtral
+
+# Intelligent Domain Modes: Screencasts, Meetings, Demos & Presentations
+cdaf generate ./screencasts --mode screencast       # tracks active OS, IDEs, terminals & browser tabs
+cdaf generate ./recorded-calls --mode meeting       # tracks participants, active speakers & action items
+cdaf generate ./product-demos --mode demo           # tracks feature walkthroughs and UI flows
+
+# Advanced Generation: Chunking & Parallelism for Large Videos
+cdaf generate ./long-footage --chunk-duration 180 --parallel 4
+
+# Model catalog & pricing table
+cdaf models
+
+# Verification & Inspection (zero external dependencies)
 cdaf status ./footage                   # FRESH / STALE / MISSING report
 cdaf read ./footage/sunset-drone.mp4    # print the description (verifies hash first)
 cdaf validate ./footage/clip.mp4        # exit 0 iff sidecar is well-formed and fresh
 ```
 
-Working from a clone instead? `pip install ./cli[generate]`. A PyPI release
-(`pip install cdaf`) is on the roadmap.
+Working from a clone instead? `pip install ./cli[generate]`.
 
-Flags: `--detail brief|standard|rich`, `--model <gemini-model>`, `--force`.
-`validate`/`read`/`status` need **no dependencies and no API key**. Safety lives in
-the tool, not just in guidance: `cdaf read` refuses to print a stale sidecar.
+Flags:
+- `--provider auto|gemini|openrouter`: AI provider backend
+- `--model <id-or-alias>`: Model selector (`flash`, `pro`, `qwen`, `pixtral`, `llama`, `gpt4o`, etc.)
+- `--mode auto|screencast|meeting|demo|presentation|general`: Domain-aware prompt tuning (tracks active OS/apps/tools for screencasts, attendees/actions for meetings)
+- `--chunk-duration <seconds>`: Automatically split long video files into temporal slices and describe in parallel
+- `--parallel <N>` / `-j <N>`: Concurrency worker count for chunked processing (default: 4)
+- `--detail brief|standard|rich`: Output granularity
+- `--force`: Regenerate sidecar even if fresh
+- `--api-key <key>`, `--base-url <url>`: Custom API credentials and OpenAI-compatible endpoints
+- `cdaf models`: Display all model aliases, full identifiers, and per-token pricing
+
+Cost Tracking:
+Generated sidecars include estimated cost and token metrics in the header (`cost: $0.0018`, `prompt_tokens: 12045`, `output_tokens: 450`). Costs are estimates from a built-in pricing table that can drift from provider pricing. `validate`/`read`/`status` need **no dependencies and no API key**. `cdaf read` refuses to print a stale sidecar.
 
 ## 🤖 Agent Skill
 

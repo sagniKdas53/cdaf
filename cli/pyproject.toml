@@ -22,7 +22,12 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
-generate = ["google-genai>=1.0.0"]
+generate = ["google-genai>=1.0.0", "requests>=2.28.0"]
+gemini = ["google-genai>=1.0.0"]
+openrouter = ["requests>=2.28.0"]
+test = ["pytest>=7.0.0", "requests>=2.28.0"]
+all = ["google-genai>=1.0.0", "requests>=2.28.0", "pytest>=7.0.0"]
+
 
 [project.urls]
 Homepage = "https://github.com/UditAkhourii/cdaf"

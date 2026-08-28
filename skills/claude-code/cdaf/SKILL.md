@@ -98,45 +98,34 @@ Verify the specific claim your decision rests on, not the whole clip.
 
 ## Generating sidecars
 
-Two providers. Both write the same v1.0 format and either output passes `cdaf validate`.
+Supports Gemini, OpenRouter, and Local model providers. All write the same v1.0 format and pass `cdaf validate`.
 
-### Local model — no API key, no cost, footage stays on the machine
+### 1. Local Model — no API key, free, footage stays on machine
 
 ```bash
 cdaf generate <video> --local          # or --provider local
 ```
 
 Needs `ffmpeg` and an OpenAI-compatible endpoint serving a model with a vision encoder
-(default `http://127.0.0.1:8090/v1`, override with `--base-url` / `--model`, or the
-`CDAF_BASE_URL` / `CDAF_LOCAL_MODEL` env vars). An audio encoder, where the model has
-one, is used for the transcript. Check the endpoint is up before offering this route:
+(default `http://127.0.0.1:8090/v1`, override with `--base-url` / `--model`, or `CDAF_BASE_URL` / `CDAF_LOCAL_MODEL`).
+
+### 2. Gemini or OpenRouter API
 
 ```bash
-curl -s localhost:8090/props   # llama-server: reports which modalities are loaded
+cdaf generate <video-or-directory>                   # skips sidecars that are already fresh
+cdaf generate <video> --force                        # regenerate even if fresh
+cdaf generate ./footage --detail rich                # brief | standard | rich
+cdaf generate ./screencasts --mode screencast       # software demos & IDE/terminal workflows
+cdaf generate ./recorded-calls --mode meeting       # meeting calls, attendee tracking & action items
+cdaf generate ./long-footage --chunk-duration 180 -j4 # chunk long clips & process in parallel
+cdaf models                                          # list all supported models, aliases & pricing
 ```
 
-Slower per clip than the API, but free and private, and cost scales per **shot** rather
-than per second of footage — so long clips are far cheaper here. Set `CDAF_PROVIDER=local`
-to make it the default.
+Sidecars store the exact tokens used and estimated generation cost in the header (`cost: $0.0018`, `prompt_tokens: 12045`).
 
-### Gemini API
-
-```bash
-cdaf generate <video-or-directory>      # skips sidecars that are already fresh
-cdaf generate <video> --force           # regenerate even if fresh
-cdaf generate ./footage --detail rich   # brief | standard | rich
-```
-
-Needs Python >= 3.10 and `GEMINI_API_KEY`
-(free tier: https://aistudio.google.com/apikey). Install the CLI once:
-
-```bash
-pip install "cdaf[generate] @ git+https://github.com/UditAkhourii/cdaf.git#subdirectory=cli"
-```
-
-Faster per clip and handles whole directories, but calls a paid API. **Ask the user
-before batch-generating a large library**, and tell them roughly how many videos you are
-about to process.
+Generation calls a paid API and takes ~10–30s per clip. **Ask the user before batch-
+generating a large library**, and tell them roughly how many videos you are about to
+process.
 
 ## Working across a footage library
 
