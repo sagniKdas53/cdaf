@@ -210,6 +210,8 @@ def resolve_pricing(model: str) -> tuple[float, float] | None:
     that talks to OpenRouter, so `cdaf generate` stays offline-equivalent no
     matter which provider is in use.
     """
+    if pricing_cache.is_free_model(model):
+        return (0.0, 0.0)
     try:
         synced = pricing_cache.lookup(model)
     except Exception:
@@ -238,6 +240,8 @@ def format_cost(cost: float | None) -> str | None:
     """Format cost float into a dollar string like '$0.0018'."""
     if cost is None:
         return None
+    if cost <= 0.0:
+        return "$0.00"
     if cost < 0.0001:
         return f"${cost:.6f}"
     return f"${cost:.4f}"
@@ -549,31 +553,33 @@ def _extract_video_frames(
 ) -> list[str]:
     """Extract evenly spaced jpeg frames as base64 data URLs from video."""
     dur = probe_duration_seconds(video_path) or 10.0
-    fps_rate = max(0.05, min(1.0, max_frames / dur))
-
     with tempfile.TemporaryDirectory() as tmpdir:
-        cmd = [
-            "ffmpeg", "-y", "-v", "error",
-            "-i", str(video_path),
-            "-vf", f"scale=480:-2,fps={fps_rate:.3f}",
-            "-q:v", "4",
-            f"{tmpdir}/f_%04d.jpg",
-        ]
-        try:
-            subprocess.run(cmd, check=True, timeout=120)
-            frames = sorted(Path(tmpdir).glob("*.jpg"))
-            if frames:
-                if len(frames) > max_frames:
-                    step = len(frames) / max_frames
-                    frames = [frames[int(i * step)] for i in range(max_frames)]
+        timestamps = [i * (dur / max(1, max_frames)) for i in range(max_frames)]
+        frames: list[Path] = []
+        for i, ts in enumerate(timestamps):
+            out_img = Path(tmpdir) / f"f_{i:04d}.jpg"
+            cmd = [
+                "ffmpeg", "-y", "-v", "error",
+                "-ss", f"{ts:.2f}",
+                "-i", str(video_path),
+                "-vframes", "1",
+                "-vf", "scale=480:-2",
+                "-q:v", "4",
+                str(out_img),
+            ]
+            try:
+                subprocess.run(cmd, check=True, timeout=30)
+                if out_img.is_file() and out_img.stat().st_size > 0:
+                    frames.append(out_img)
+            except Exception:
+                continue
 
-                data_urls = []
-                for f in frames:
-                    b64 = base64.b64encode(f.read_bytes()).decode("ascii")
-                    data_urls.append(f"data:image/jpeg;base64,{b64}")
-                return data_urls
-        except Exception:
-            pass
+        if frames:
+            data_urls = []
+            for f in sorted(frames):
+                b64 = base64.b64encode(f.read_bytes()).decode("ascii")
+                data_urls.append(f"data:image/jpeg;base64,{b64}")
+            return data_urls
 
     return []
 
@@ -672,13 +678,8 @@ def _describe_openrouter(
         usage_dict["seconds"] = round(time.monotonic() - started, 2)
         return body, usage_dict
 
-    if use_frames:
-        frame_urls = _extract_video_frames(video)
-        if not frame_urls:
-            raise GenerationError(
-                f"could not extract video frames for {video.name} "
-                "(image-vision models need ffmpeg installed for frame sampling)"
-            )
+    frame_urls = _extract_video_frames(video)
+    if frame_urls:
         content: list[dict] = [{"type": "text", "text": prompt + "\nNote: Attached are chronological image frames sampled across the video."}]
         for furl in frame_urls:
             content.append({"type": "image_url", "image_url": {"url": furl}})
@@ -686,6 +687,12 @@ def _describe_openrouter(
         if usage_out is not None:
             usage_out.update(u)
         return body
+
+    if use_frames:
+        raise GenerationError(
+            f"could not extract video frames for {video.name} "
+            "(image-vision models need ffmpeg installed for frame sampling)"
+        )
 
     upload_video, is_temp = _optimize_video_for_upload(video)
     try:

@@ -57,6 +57,8 @@ def match_price(
     """
     if not model:
         return None
+    if is_free_model(model):
+        return (0.0, 0.0)
     needle = model.lower()
     exact = table.get(model) or table.get(needle)
     if exact is not None:
@@ -76,7 +78,7 @@ def is_free_model(model: str) -> bool:
     "mistralai/mistral-freeform" at $0.
     """
     low = model.lower()
-    return low.endswith(":free") or low.endswith("-free")
+    return low.endswith(":free") or low.endswith("-free") or low.endswith("/free") or low == "free"
 
 
 def _load_cache(path: Path | None = None) -> dict:

@@ -65,7 +65,14 @@ class TestMatchPrice(unittest.TestCase):
 class TestFreeModelDetection(unittest.TestCase):
     def test_free_suffixes(self):
         self.assertTrue(pricing.is_free_model("qwen/qwen3.8-flash:free"))
+        self.assertTrue(pricing.is_free_model("google/gemini-2.5-flash:free"))
+        self.assertTrue(pricing.is_free_model("openrouter/free"))
         self.assertTrue(pricing.is_free_model("some/model-free"))
+
+    def test_free_models_resolve_to_zero(self):
+        self.assertEqual(pricing.match_price("google/gemini-2.5-flash:free", MODEL_PRICING), (0.0, 0.0))
+        self.assertEqual(resolve_pricing("google/gemini-2.5-flash:free"), (0.0, 0.0))
+        self.assertEqual(resolve_pricing("qwen/qwen3.8-flash:free"), (0.0, 0.0))
 
     def test_free_substring_is_not_free(self):
         """Regression: 'free' anywhere in the id priced unrelated models at $0."""

@@ -120,8 +120,17 @@ class TestCostCalculation(unittest.TestCase):
     def test_unknown_model_has_no_cost(self):
         self.assertIsNone(calculate_cost("some/unknown-model", prompt_tokens=1000, output_tokens=100))
 
+    def test_free_model_cost_is_zero(self):
+        cost = calculate_cost("google/gemini-2.5-flash:free", prompt_tokens=10000, output_tokens=1000)
+        self.assertEqual(cost, 0.0)
+        cost_qwen = calculate_cost("qwen/qwen3.8-flash:free", prompt_tokens=5000, output_tokens=500)
+        self.assertEqual(cost_qwen, 0.0)
+
     def test_format_cost(self):
+        self.assertEqual(format_cost(0.0), "$0.00")
+        self.assertEqual(format_cost(0), "$0.00")
         self.assertEqual(format_cost(0.0021), "$0.0021")
+        self.assertEqual(format_cost(0.001), "$0.0010")
         self.assertEqual(format_cost(0.000045), "$0.000045")
         self.assertIsNone(format_cost(None))
 
