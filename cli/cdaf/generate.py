@@ -63,6 +63,12 @@ MODEL_ALIASES: dict[str, str] = {
 
 # Approximate pricing in USD per 1M tokens: (prompt_price_per_1M, output_price_per_1M).
 # Provider prices change; the `cost:` header is an estimate, not a billing record.
+# Note: `gemini-3.7-flash` (direct Google) and `google/gemini-3.7-flash` (OpenRouter)
+# resolve to the same underlying model but are priced differently here because the
+# two providers charge different rates. The direct-Google rate is from Google's
+# public pricing; the OpenRouter rate reflects the discounted route OpenRouter
+# offers for the same model. Keep the two rows in sync when one provider changes
+# its pricing — they drift independently. Same caveat for gemini-2.5-flash below.
 MODEL_PRICING: dict[str, tuple[float, float]] = {
     "gemini-2.5-flash": (0.30, 2.50),
     "google/gemini-2.5-flash": (0.30, 2.50),
@@ -558,10 +564,15 @@ def _extract_video_frames(
         frames: list[Path] = []
         for i, ts in enumerate(timestamps):
             out_img = Path(tmpdir) / f"f_{i:04d}.jpg"
+            # -ss AFTER -i is a precise seek (decodes to the requested timestamp),
+            # unlike keyframe-seek (-ss before -i) which snaps to the nearest
+            # keyframe. Slower per frame, but the extracted frame actually matches
+            # the timestamp we asked for — matters when the model is told "this is
+            # t=2:30" and we don't want it describing 2:28 by accident.
             cmd = [
                 "ffmpeg", "-y", "-v", "error",
-                "-ss", f"{ts:.2f}",
                 "-i", str(video_path),
+                "-ss", f"{ts:.2f}",
                 "-vframes", "1",
                 "-vf", "scale=480:-2",
                 "-q:v", "4",

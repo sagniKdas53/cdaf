@@ -70,15 +70,30 @@ def match_price(
     return table[best_key] if best_key is not None else None
 
 
+# OpenRouter's free-tier namespace is two shapes: a vendor model id with a ":free"
+# suffix (`qwen/qwen3.8-flash:free`, `google/gemini-2.5-flash:free`) and the single
+# aggregator id `openrouter/free`. Anything else ending in "-free" or "/free" is
+# treated as a real (priced) model — a user-named `qwen2.5-vl-free` self-host, or
+# `mistralai/mistral-freeform`, must not silently resolve to $0.
+_FREE_MODEL_SUFFIX = ":free"
+_FREE_MODEL_AGGREGATOR = "openrouter/free"
+
+
 def is_free_model(model: str) -> bool:
     """True for OpenRouter's zero-cost variants.
 
-    Only the ":free" suffix and a trailing "-free" count. Matching "free"
-    anywhere in the id prices unrelated models such as
-    "mistralai/mistral-freeform" at $0.
+    A positive list, not a pattern match: the only free forms we recognize are
+    the `:free` suffix that OpenRouter applies to its routed free tier and the
+    `openrouter/free` aggregator id. Anything else ending in `-free` or `/free`
+    is treated as a real (priced) model — a user-named `qwen2.5-vl-free`
+    self-host, or `mistralai/mistral-freeform`, must not silently resolve to $0.
     """
+    if not model:
+        return False
     low = model.lower()
-    return low.endswith(":free") or low.endswith("-free") or low.endswith("/free") or low == "free"
+    if low == _FREE_MODEL_AGGREGATOR:
+        return True
+    return low.endswith(_FREE_MODEL_SUFFIX)
 
 
 def _load_cache(path: Path | None = None) -> dict:

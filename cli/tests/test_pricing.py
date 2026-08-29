@@ -67,12 +67,26 @@ class TestFreeModelDetection(unittest.TestCase):
         self.assertTrue(pricing.is_free_model("qwen/qwen3.8-flash:free"))
         self.assertTrue(pricing.is_free_model("google/gemini-2.5-flash:free"))
         self.assertTrue(pricing.is_free_model("openrouter/free"))
-        self.assertTrue(pricing.is_free_model("some/model-free"))
+
+    def test_non_openrouter_free_suffixes_are_not_free(self):
+        # A trailing "-free" or "/free" is a real (priced) model: a user-named
+        # self-host like "some/model-free", or a vendor id ending "/free" that
+        # isn't OpenRouter's aggregator. They must NOT resolve to $0.
+        self.assertFalse(pricing.is_free_model("some/model-free"))
+        self.assertFalse(pricing.is_free_model("vendor/freestyle-vl"))
+        self.assertFalse(pricing.is_free_model("mistralai/mistral-freeform"))
+        # Empty / weird input
+        self.assertFalse(pricing.is_free_model(""))
+        # A user could name their own local model "free" — we still don't
+        # treat that as free, because we only know OpenRouter's two shapes.
+        self.assertFalse(pricing.is_free_model("free"))
 
     def test_free_models_resolve_to_zero(self):
         self.assertEqual(pricing.match_price("google/gemini-2.5-flash:free", MODEL_PRICING), (0.0, 0.0))
+        self.assertEqual(pricing.match_price("openrouter/free", MODEL_PRICING), (0.0, 0.0))
         self.assertEqual(resolve_pricing("google/gemini-2.5-flash:free"), (0.0, 0.0))
         self.assertEqual(resolve_pricing("qwen/qwen3.8-flash:free"), (0.0, 0.0))
+        self.assertEqual(resolve_pricing("openrouter/free"), (0.0, 0.0))
 
     def test_free_substring_is_not_free(self):
         """Regression: 'free' anywhere in the id priced unrelated models at $0."""
