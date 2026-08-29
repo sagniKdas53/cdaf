@@ -604,6 +604,7 @@ def _describe_openrouter(
     base_url: str | None = None,
     usage_out: dict | None = None,
     timeout: float = 600.0,
+    max_frames: int | None = None,
 ) -> str:
     key = api_key or os.environ.get("OPENROUTER_API_KEY")
     if not key:
@@ -689,7 +690,7 @@ def _describe_openrouter(
         usage_dict["seconds"] = round(time.monotonic() - started, 2)
         return body, usage_dict
 
-    frame_urls = _extract_video_frames(video)
+    frame_urls = _extract_video_frames(video, max_frames=max_frames or 24)
     if frame_urls:
         content: list[dict] = [{"type": "text", "text": prompt + "\nNote: Attached are chronological image frames sampled across the video."}]
         for furl in frame_urls:
@@ -753,8 +754,28 @@ def _describe_single_clip(
     api_key: str | None = None,
     base_url: str | None = None,
     usage_out: dict | None = None,
+    max_frames: int | None = None,
+    max_output_tokens: int | None = None,
 ) -> str:
     """Internal helper to execute one describe call on a video file."""
+
+    def cap_output(body: str) -> str:
+        if not max_output_tokens:
+            return body
+        # Truncate at the last completed segment before the cap. A rough
+        # ~4 chars/token heuristic is enough to keep sidecars compact without
+        # shipping a tokenizer; the model's hard limit is the real backstop.
+        approx_chars = max_output_tokens * 4
+        if len(body) <= approx_chars:
+            return body
+        # Find the last "\n[MM:SS" or "\n## " boundary before the cap.
+        cut = body.rfind("\n## ", 0, approx_chars)
+        if cut == -1:
+            cut = body.rfind("\n[", 0, approx_chars)
+        if cut == -1:
+            return body[:approx_chars].rstrip() + "\n\n[...truncated to fit --max-output-tokens]"
+        return body[:cut].rstrip() + "\n\n[...truncated to fit --max-output-tokens]"
+
     if provider == "gemini":
         body = _describe_gemini(
             video, model=model, prompt=prompt, api_key=api_key, usage_out=usage_out
@@ -767,10 +788,12 @@ def _describe_single_clip(
             api_key=api_key,
             base_url=base_url,
             usage_out=usage_out,
+            max_frames=max_frames,
         )
     else:
         raise ValueError(f"unknown provider: {provider!r}")
 
+    body = cap_output(body)
     body = re.sub(r"<think>[\s\S]*?</think>", "", body).strip()
     body = re.sub(r"^```(?:markdown)?\s*|\s*```$", "", body).strip()
     if "## Segments" not in body:
@@ -792,6 +815,8 @@ def describe_video(
     usage_out: dict | None = None,
     chunk_duration: float | None = None,
     parallel: int = 1,
+    max_frames: int | None = None,
+    max_output_tokens: int | None = None,
 ) -> str:
     """Describe a video using Gemini or OpenRouter and return the CDAF body markdown."""
     if detail not in _DETAIL_GUIDANCE:
@@ -863,6 +888,8 @@ def describe_video(
                     api_key=api_key,
                     base_url=base_url,
                     usage_out=chunk_usage,
+                    max_frames=max_frames,
+                    max_output_tokens=max_output_tokens,
                 )
                 chunk_body = offset_body_timestamps(chunk_body, start_s, use_hours=use_hours)
                 return idx, chunk_body, start_s, end_s, chunk_usage
@@ -920,6 +947,8 @@ def generate_sidecar(
     usage_out: dict | None = None,
     chunk_duration: float | None = None,
     parallel: int = 1,
+    max_frames: int | None = None,
+    max_output_tokens: int | None = None,
 ) -> Sidecar:
     """Full pipeline: hash + probe + describe → a ready-to-save Sidecar with cost tracking."""
     video = Path(video)
@@ -965,6 +994,7 @@ def generate_sidecar(
             usage_out=internal_usage,
             chunk_duration=chunk_duration,
             parallel=parallel,
+            max_frames=max_frames,
         )
 
         if usage_out is not None:

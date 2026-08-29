@@ -154,6 +154,8 @@ def cmd_generate(args: argparse.Namespace) -> int:
                 scene_threshold=getattr(args, "scene_threshold", None),
                 chunk_duration=getattr(args, "chunk_duration", None),
                 parallel=getattr(args, "parallel", 1),
+                max_frames=getattr(args, "max_frames", None),
+                max_output_tokens=getattr(args, "max_output_tokens", None),
             )
             save(sc, sidecar)
             cost_info = f" (cost: {sc.header['cost']})" if "cost" in sc.header else ""
@@ -342,6 +344,20 @@ def main(argv: list[str] | None = None) -> int:
         type=int,
         default=4,
         help="maximum number of concurrent workers for parallel chunk processing (default: 4)",
+    )
+    g.add_argument(
+        "--max-frames",
+        type=int,
+        default=None,
+        metavar="N",
+        help="number of frames to sample for image-vision models (default: 24; some free-tier providers cap at 12)",
+    )
+    g.add_argument(
+        "--max-output-tokens",
+        type=int,
+        default=None,
+        metavar="N",
+        help="cap the model's response length per chunk (default: provider's own limit; set to 600-1000 to keep sidecars compact)",
     )
     g.add_argument(
         "--list-models",
