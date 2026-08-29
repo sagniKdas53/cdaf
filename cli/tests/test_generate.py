@@ -220,6 +220,127 @@ action, climax
         self.assertIn('[00:10.0] "Intro"', merged)
         self.assertIn("action, intro, climax", merged)
 
+    def test_merge_inserts_gap_for_chunk_boundary(self):
+        """When chunk A's last segment ends at 1:05 and chunk B starts at 4:00,
+        the merged body must include a gap-fill segment naming 1:05-4:00. This
+        is the SPEC §2.2 contiguity requirement; without the fill, a consumer
+        querying 'what's at 2:00' has no answer.
+        """
+        c1 = """## Segments
+[00:00.0-01:05.0] First part.
+
+## Transcript
+(no speech)
+
+## On-screen Text
+(none)
+
+## Tags
+tag1
+"""
+        c2 = """## Segments
+[04:00.0-08:05.0] Second part, after a 3-minute boundary gap.
+
+## Transcript
+(no speech)
+
+## On-screen Text
+(none)
+
+## Tags
+tag2
+"""
+        merged = merge_chunk_bodies([(c1, 0, 240), (c2, 240, 480)])
+        # The gap-fill segment should appear, with a recognizable marker.
+        self.assertIn("chunk boundary gap", merged)
+        # And it should sit between the two real segments in chronological order.
+        gap_idx = merged.index("chunk boundary gap")
+        first_idx = merged.index("First part.")
+        second_idx = merged.index("Second part")
+        self.assertLess(first_idx, gap_idx)
+        self.assertLess(gap_idx, second_idx)
+
+    def test_merge_handles_internal_gap_within_a_chunk(self):
+        """Gap detection must work even when a single chunk's model output has
+        its own internal gaps (e.g. the model skipped a beat). The fill is based
+        on segment-timestamp contiguity, not on chunk boundaries alone.
+        """
+        c1 = """## Segments
+[00:00.0-00:30.0] Early.
+[01:00.0-02:00.0] Then a jump to 1:00.
+
+## Transcript
+(no speech)
+
+## On-screen Text
+(none)
+
+## Tags
+x
+"""
+        merged = merge_chunk_bodies([(c1, 0, 120)])
+        # 30s-60s gap should be filled even with a single chunk
+        self.assertIn("chunk boundary gap", merged)
+        # Order preserved
+        self.assertLess(merged.index("Early."), merged.index("chunk boundary gap"))
+        self.assertLess(merged.index("chunk boundary gap"), merged.index("Then a jump"))
+
+    def test_merge_no_fill_when_segments_abut(self):
+        """Back-to-back chunks whose segments abut (chunk N ends at exactly the
+        time chunk N+1's first segment starts) must NOT get a phantom gap fill.
+        This is the common case for well-aligned chunked output.
+        """
+        c1 = """## Segments
+[00:00.0-04:00.0] First four minutes.
+
+## Transcript
+(no speech)
+
+## On-screen Text
+(none)
+
+## Tags
+x
+"""
+        c2 = """## Segments
+[04:00.0-08:00.0] Next four minutes.
+
+## Transcript
+(no speech)
+
+## On-screen Text
+(none)
+
+## Tags
+y
+"""
+        merged = merge_chunk_bodies([(c1, 0, 240), (c2, 240, 480)])
+        self.assertNotIn("chunk boundary gap", merged)
+
+    def test_merge_sorts_out_of_order_segments(self):
+        """If a chunk produces segments that aren't strictly increasing (e.g.
+        a model that re-orders a flashback), the merge should still produce a
+        chronologically sorted Segments section, with any intra-gap filled.
+        """
+        c1 = """## Segments
+[04:00.0-05:00.0] B segment (out of order).
+[00:00.0-01:00.0] A segment.
+
+## Transcript
+(no speech)
+
+## On-screen Text
+(none)
+
+## Tags
+x
+"""
+        merged = merge_chunk_bodies([(c1, 0, 300)])
+        # A should appear before B in the merged output
+        a_idx = merged.index("A segment.")
+        b_idx = merged.index("B segment")
+        self.assertLess(a_idx, b_idx)
+
 
 class TestVideoDataUrl(unittest.TestCase):
     def test_video_data_url(self):
