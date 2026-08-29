@@ -103,7 +103,8 @@ def parse(text: str) -> Sidecar:
 def dumps(sc: Sidecar) -> str:
     """Serialize a Sidecar to canonical text."""
     ordered = ["video", "sha256", "bytes", "duration", "resolution", "fps",
-               "generator", "created", "detail", "lang"]
+               "generator", "mode", "cost", "prompt_tokens", "output_tokens",
+               "created", "detail", "lang"]
     keys = [k for k in ordered if k in sc.header]
     keys += [k for k in sc.header if k not in ordered]
     lines = [f"--- CDAF/{sc.version}"]

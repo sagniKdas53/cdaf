@@ -12,10 +12,12 @@ from .sidecar import (  # noqa: F401
     Sidecar,
     SidecarError,
     check_freshness,
+    dumps,
     hash_file,
     load,
     parse,
     save,
+    segment_lines,
     sidecar_path_for,
     video_path_for,
 )

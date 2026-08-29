@@ -73,13 +73,17 @@ lang: en
 
 **Optional keys**
 
-| Key          | Meaning |
-|--------------|---------|
-| `duration`   | `HH:MM:SS.mmm` duration of the video. |
-| `resolution` | `WIDTHxHEIGHT` in pixels. |
-| `fps`        | Frames per second (decimal allowed). |
-| `detail`     | Description depth: `brief`, `standard`, or `rich`. |
-| `lang`       | BCP-47 tag of the body language (default `en`). |
+| Key             | Meaning |
+|-----------------|---------|
+| `duration`      | `HH:MM:SS.mmm` duration of the video. |
+| `resolution`    | `WIDTHxHEIGHT` in pixels. |
+| `fps`           | Frames per second (decimal allowed). |
+| `mode`          | Domain mode (`screencast`, `meeting`, `demo`, `presentation`, `general`). |
+| `cost`          | Estimated total generation cost in USD (e.g. `$0.0018`). |
+| `prompt_tokens` | Total input / prompt tokens used. |
+| `output_tokens` | Total output / candidate tokens generated. |
+| `detail`        | Description depth: `brief`, `standard`, or `rich`. |
+| `lang`          | BCP-47 tag of the body language (default `en`). |
 
 ### 2.2 Body
 
@@ -102,11 +106,14 @@ Consumers MUST ignore unknown sections.
 **Recommended sections** (include when applicable, omit when empty)
 
 - `## Summary` — one short paragraph: what this clip is and what it's useful for.
+- `## Environment & Tools` — for screencasts & software demos: OS, active applications (VS Code, Firefox, Terminal), web tools, and services.
+- `## Meeting Details` — for conference calls: platform (Zoom, Meet, Teams), attendees, active speaker layout, and screen-sharing status.
 - `## Transcript` — spoken words with timestamps and speaker labels when identifiable:
   `[MM:SS.d] Speaker: words…`. Omit for videos with no speech.
-- `## On-screen Text` — visible text (titles, captions, signs, UI) with timestamps.
+- `## On-screen Text` — visible text (titles, captions, signs, UI, commands, code) with timestamps.
+- `## Action Items & Decisions` — for meetings: summarized agreed next steps and decisions.
 - `## Tags` — a single comma-separated line of retrieval keywords
-  (subjects, actions, setting, mood, camera work, lighting).
+  (subjects, actions, tools, setting, mood, camera work, lighting).
 
 ### 2.3 Segment description quality
 
@@ -115,6 +122,25 @@ Segment descriptions exist so an agent can make editorial and analytical decisio
 their actions, setting, camera framing and movement, lighting/mood, and any notable
 moment an editor would cut on. Producers SHOULD state what is objectively visible
 rather than speculate.
+
+### 2.4 Chunking & Parallel Synthesis
+
+Long or high-resolution videos MAY be divided into temporal spans (e.g. 180–300 seconds)
+and described across parallel worker threads. When merging chunk outputs:
+- Timestamps across Segments, Transcript, and On-screen Text MUST be offset by each chunk's
+  starting time so the unified document remains strictly chronological.
+- Section tags MUST be merged and deduplicated.
+- Total prompt and completion tokens across all chunks SHOULD be aggregated and recorded
+  in the header alongside the estimated cost.
+
+### 2.5 Screencasts, Meetings & Product Demos
+
+When indexing desktop screencasts, online meetings, or product demos:
+- **Screencasts:** Prefix segment entries with the active application name:
+  `[MM:SS.d-MM:SS.d] (VS Code) Created function definition and ran pytest.`
+- **Meetings:** Attribute speaker turns and screen-sharing changes:
+  `[MM:SS.d-MM:SS.d] (Alice / Slide Presentation) Explaining quarterly user growth.`
+- **Action Items:** Capture decisions and assigned tasks under `## Action Items & Decisions`.
 
 ## 3. Freshness and trust
 

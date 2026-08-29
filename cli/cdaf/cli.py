@@ -1,21 +1,20 @@
-"""cdaf — command-line tool for CDAF sidecars.
+"""cdaf command-line interface.
 
-Commands:
-  generate   Create/refresh .cdaf sidecars (Gemini by default, or a local model)
-  validate   Verify a sidecar is well-formed and fresh (hash matches video)
-  read       Print a sidecar's body (what an agent should consume)
-  status     Report fresh/stale/missing across a directory tree
+Zero third-party dependencies for validate / read / status.
+Generation needs google-genai, requests, or local endpoint.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import sys
 from pathlib import Path
 
 from . import __version__
+from .index import INDEX_FILENAME
 from .sidecar import (
-    VIDEO_EXTENSIONS,
     SidecarError,
     check_freshness,
     load,
@@ -24,31 +23,47 @@ from .sidecar import (
     video_path_for,
 )
 
+VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v"}
+
 
 def _iter_videos(paths: list[str]) -> list[Path]:
-    videos: list[Path] = []
-    for raw in paths:
-        p = Path(raw)
-        if p.is_dir():
-            videos.extend(
-                f for f in sorted(p.rglob("*"))
-                if f.is_file() and f.suffix.lower() in VIDEO_EXTENSIONS
-            )
-        elif p.is_file() and p.suffix.lower() in VIDEO_EXTENSIONS:
-            videos.append(p)
-        elif p.is_file() and p.suffix.lower() == ".cdaf":
-            video = video_path_for(p)
-            if video:
-                videos.append(video)
+    out: list[Path] = []
+    for p in paths:
+        path = Path(p)
+        if path.is_file():
+            if path.suffix.lower() == ".cdaf":
+                try:
+                    sc = load(path)
+                    v = video_path_for(path, sc.video)
+                    if v:
+                        out.append(v)
+                    else:
+                        print(f"warning: no video found for sidecar {path}", file=sys.stderr)
+                except SidecarError as e:
+                    print(f"warning: skipping invalid sidecar {path}: {e}", file=sys.stderr)
+            elif path.suffix.lower() in VIDEO_EXTS:
+                out.append(path)
             else:
-                print(f"warning: no video found for sidecar {p}", file=sys.stderr)
+                print(f"warning: skipping {path} (not a video file or directory)", file=sys.stderr)
+        elif path.is_dir():
+            for root, _, files in os.walk(path):
+                for f in files:
+                    fp = Path(root) / f
+                    if fp.suffix.lower() in VIDEO_EXTS:
+                        out.append(fp)
         else:
-            print(f"warning: skipping {p} (not a video file or directory)", file=sys.stderr)
-    return videos
+            print(f"warning: skipping {path} (not a video file or directory)", file=sys.stderr)
+    seen: set[Path] = set()
+    uniq: list[Path] = []
+    for v in sorted(out):
+        resolved = v.resolve()
+        if resolved not in seen:
+            seen.add(resolved)
+            uniq.append(v)
+    return uniq
 
 
 def _sidecar_state(video: Path) -> str:
-    """'fresh' | 'stale' | 'missing' | 'invalid' for a video's sidecar."""
     sidecar = sidecar_path_for(video)
     if not sidecar.is_file():
         return "missing"
@@ -59,8 +74,61 @@ def _sidecar_state(video: Path) -> str:
     return check_freshness(video, sc)
 
 
+def cmd_models(args: argparse.Namespace) -> int:
+    """List available model aliases, pricing, and recommendations."""
+    from . import pricing as pricing_cache
+    from .generate import MODEL_ALIASES, MODEL_PRICING
+
+    if getattr(args, "refresh", False):
+        if pricing_cache.requests is None:
+            print(
+                "error: --refresh needs the requests package; "
+                'install it with pip install "cdaf[openrouter]"',
+                file=sys.stderr,
+            )
+            return 1
+        targets = sorted(set(MODEL_ALIASES.values()))
+        print(f"Syncing pricing for {len(targets)} models from OpenRouter...")
+        results = pricing_cache.refresh(targets, force=True)
+        priced = sum(1 for v in results.values() if v is not None)
+        print(f"  {priced}/{len(targets)} priced, cached at {pricing_cache.cache_path()}\n")
+
+    print("CDAF Supported Models & Aliases\n")
+    print(f"{'Alias / Short Name':<20} | {'Full Model Identifier':<42} | {'Input $/1M':<10} | {'Output $/1M':<10}")
+    print("-" * 90)
+    synced = pricing_cache.load_prices()  # one cache read for the whole table
+    synced_rows = 0
+    for alias, full in sorted(MODEL_ALIASES.items()):
+        is_synced = full.lower() in synced
+        synced_rows += is_synced
+        pricing = synced[full.lower()] if is_synced else pricing_cache.match_price(full, MODEL_PRICING)
+        mark = "*" if is_synced else ""
+        in_p = f"${pricing[0]:.2f}{mark}" if pricing else "N/A"
+        out_p = f"${pricing[1]:.2f}{mark}" if pricing else "N/A"
+        print(f"{alias:<20} | {full:<42} | {in_p:<10} | {out_p:<10}")
+    if synced_rows:
+        print("\n* synced from OpenRouter; unmarked rows come from the built-in table.")
+
+    print("\nRecommended for General Video:")
+    print("  --model flash-3.7       (Google Gemini 3.7 Flash - latest, fast, native video)")
+    print("  --model flash           (Google Gemini 2.5 Flash - native video, cost efficient)")
+    print("  --model pro             (Google Gemini 2.5 Pro - highest fidelity)")
+    print("  --model qwen            (Qwen 2.5 VL 72B - open vision model via OpenRouter frame sampling)")
+    print("\nPrices are approximate; check your provider's pricing page before relying on cost estimates.")
+    return 0
+
+
 def cmd_generate(args: argparse.Namespace) -> int:
-    from .generate import GenerationError, generate_sidecar  # lazy: needs google-genai
+    from .generate import GenerationError, generate_sidecar, load_dotenv_if_present
+
+    if getattr(args, "list_models", False):
+        return cmd_models(args)
+
+    load_dotenv_if_present()
+
+    if not args.paths:
+        print("error: no video files or paths specified", file=sys.stderr)
+        return 1
 
     videos = _iter_videos(args.paths)
     if not videos:
@@ -76,12 +144,22 @@ def cmd_generate(args: argparse.Namespace) -> int:
         print(f"  generating  {video} ...", flush=True)
         try:
             sc = generate_sidecar(
-                video, model=args.model, detail=args.detail, api_key=args.api_key,
-                provider=args.provider, base_url=args.base_url,
-                scene_threshold=args.scene_threshold
+                video,
+                provider=args.provider,
+                model=args.model,
+                detail=args.detail,
+                mode=getattr(args, "mode", "auto"),
+                api_key=args.api_key,
+                base_url=getattr(args, "base_url", None),
+                scene_threshold=getattr(args, "scene_threshold", None),
+                chunk_duration=getattr(args, "chunk_duration", None),
+                parallel=getattr(args, "parallel", 1),
+                max_frames=getattr(args, "max_frames", None),
+                max_output_tokens=getattr(args, "max_output_tokens", None),
             )
             save(sc, sidecar)
-            print(f"  wrote   {sidecar}")
+            cost_info = f" (cost: {sc.header['cost']})" if "cost" in sc.header else ""
+            print(f"  wrote   {sidecar}{cost_info}")
         except (GenerationError, OSError) as e:
             failures += 1
             print(f"  FAILED  {video}: {e}", file=sys.stderr)
@@ -150,35 +228,151 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0 if counts["fresh"] == total else 1
 
 
+def cmd_index(args: argparse.Namespace) -> int:
+    """Build a searchable index over a library's sidecars."""
+    from .index import build_index, default_index_path, write_index
+
+    try:
+        index = build_index(args.path, verify=args.verify)
+    except FileNotFoundError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+
+    entries = index["entries"]
+    if not entries:
+        print(f"no .cdaf sidecars found under {args.path}", file=sys.stderr)
+        return 1
+
+    out = write_index(index, args.output or default_index_path(args.path))
+    counts: dict[str, int] = {}
+    for entry in entries:
+        counts[entry["state"]] = counts.get(entry["state"], 0) + 1
+    summary = ", ".join(f"{n} {state}" for state, n in sorted(counts.items()))
+    print(f"indexed {len(entries)} sidecar(s) -> {out}")
+    print(f"  {summary}")
+    if not args.verify:
+        print("  freshness is size-checked; pass --verify to hash each video")
+    return 0
+
+
+def cmd_search(args: argparse.Namespace) -> int:
+    """Query an index built by `cdaf index`."""
+    from .index import default_index_path, load_index, search
+
+    index_path = Path(args.index) if args.index else default_index_path(args.path)
+    if not index_path.is_file():
+        print(f"error: no index at {index_path}; run `cdaf index {args.path}` first", file=sys.stderr)
+        return 1
+    try:
+        index = load_index(index_path)
+    except (ValueError, OSError) as e:
+        print(f"error: could not read {index_path}: {e}", file=sys.stderr)
+        return 1
+
+    results = search(args.query, index, limit=args.limit)
+    if args.json:
+        print(json.dumps(results, indent=2, ensure_ascii=False))
+        return 0 if results else 1
+
+    for entry in results:
+        state = "" if entry["state"] == "fresh" else f" [{entry['state']}]"
+        print(f"- {entry['video']}{state}")
+        if entry["summary"]:
+            print(f"    {entry['summary'].splitlines()[0][:160]}")
+        if entry["tags"]:
+            print(f"    tags: {', '.join(entry['tags'][:12])}")
+        print(f"    sidecar: {entry['sidecar']}")
+    print(f"\n{len(results)} result(s) for {args.query!r}")
+    return 0 if results else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="cdaf",
-        description="CDAF — Cached Descriptive Asset Files: timestamped descriptive "
-        "sidecars for video, so AI agents stop re-analyzing the same footage.",
+        description="CDAF: Cached Descriptive Asset Files. Generate, validate, and read sidecars.",
     )
     parser.add_argument("--version", action="version", version=f"cdaf {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
 
     g = sub.add_parser("generate", help="create/refresh sidecars for videos")
-    g.add_argument("paths", nargs="+", help="video files, sidecars, or directories (recursive)")
-    g.add_argument("--model", default=None, help="Gemini model id (default: env CDAF_MODEL or gemini-2.5-flash)")
+    g.add_argument("paths", nargs="*", help="video files, sidecars, or directories (recursive)")
+    g.add_argument(
+        "--provider",
+        choices=["auto", "gemini", "openrouter", "local"],
+        default="auto",
+        help="AI provider (default: auto; gemini, openrouter, or local OpenAI-compatible endpoint)",
+    )
+    g.add_argument(
+        "--local",
+        dest="provider",
+        action="store_const",
+        const="local",
+        help="shorthand for --provider local (uses local OpenAI-compatible endpoint and ffmpeg scene detection)",
+    )
+    g.add_argument(
+        "--model",
+        default=None,
+        help="model id or alias (e.g. flash-3.7, flash, pro, qwen, pixtral, llama, gpt4o; see `cdaf models`)",
+    )
+    g.add_argument(
+        "--mode",
+        choices=["auto", "screencast", "meeting", "demo", "presentation", "general"],
+        default="auto",
+        help="intelligent domain mode (screencast: track OS/apps/tools; meeting: track speakers/agenda/actions; demo: product flow; presentation: slides; default: auto)",
+    )
     g.add_argument("--detail", choices=["brief", "standard", "rich"], default="standard")
     g.add_argument("--force", action="store_true", help="regenerate even if sidecar is fresh")
-    g.add_argument("--api-key", default=None, help="Gemini API key (default: env GEMINI_API_KEY)")
-    g.add_argument("--provider", choices=["gemini", "local"], default=None,
-                   help="gemini = Files API, needs a key (default); "
-                        "local = OpenAI-compatible endpoint, no key or cost "
-                        "(default: env CDAF_PROVIDER)")
-    g.add_argument("--local", dest="provider", action="store_const", const="local",
-                   help="shorthand for --provider local")
-    g.add_argument("--scene-threshold", type=float, default=None, metavar="F",
-                   help="local: ffmpeg scene-detect sensitivity, 0-1 (default 0.15). "
-                        "Lower finds more cuts, including low-contrast ones, at the "
-                        "cost of splitting on camera movement")
-    g.add_argument("--base-url", default=None,
-                   help="local endpoint (default: env CDAF_BASE_URL or "
-                        "http://127.0.0.1:8090/v1)")
+    g.add_argument("--api-key", default=None, help="API key (Gemini or OpenRouter)")
+    g.add_argument("--base-url", default=None, help="custom API base URL (for OpenRouter or local endpoint)")
+    g.add_argument(
+        "--scene-threshold",
+        type=float,
+        default=None,
+        metavar="F",
+        help="local: ffmpeg scene-detect sensitivity, 0-1 (default 0.15)",
+    )
+    g.add_argument(
+        "--chunk-duration",
+        "--chunk-size",
+        type=float,
+        default=None,
+        help="split long videos into chunks of N seconds and process in parallel (e.g. --chunk-duration 180)",
+    )
+    g.add_argument(
+        "--parallel",
+        "-j",
+        type=int,
+        default=4,
+        help="maximum number of concurrent workers for parallel chunk processing (default: 4)",
+    )
+    g.add_argument(
+        "--max-frames",
+        type=int,
+        default=None,
+        metavar="N",
+        help="number of frames to sample for image-vision models (default: 24; some free-tier providers cap at 12)",
+    )
+    g.add_argument(
+        "--max-output-tokens",
+        type=int,
+        default=None,
+        metavar="N",
+        help="cap the model's response length per chunk (default: provider's own limit; set to 600-1000 to keep sidecars compact)",
+    )
+    g.add_argument(
+        "--list-models",
+        action="store_true",
+        help="list recommended model aliases, endpoints, and pricing",
+    )
     g.set_defaults(func=cmd_generate)
+
+    m = sub.add_parser("models", help="list recommended models, aliases, and pricing")
+    m.add_argument(
+        "--refresh",
+        action="store_true",
+        help="sync pricing from OpenRouter into a local 7-day cache (the only pricing network call)",
+    )
+    m.set_defaults(func=cmd_models)
 
     v = sub.add_parser("validate", help="check one sidecar is well-formed and fresh")
     v.add_argument("path", help="a video file or a .cdaf file")
@@ -194,19 +388,21 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("path", nargs="?", default=".", help="directory to scan (default: .)")
     s.set_defaults(func=cmd_status)
 
+    i = sub.add_parser("index", help="build a searchable index from a library's sidecars")
+    i.add_argument("path", nargs="?", default=".", help="directory to scan (default: .)")
+    i.add_argument("-o", "--output", help=f"index file to write (default: <path>/{INDEX_FILENAME})")
+    i.add_argument("--verify", action="store_true", help="hash each video instead of size-checking it")
+    i.set_defaults(func=cmd_index)
+
+    q = sub.add_parser("search", help="search an index built by `cdaf index`")
+    q.add_argument("query", help="terms to match; every term must appear")
+    q.add_argument("path", nargs="?", default=".", help="indexed directory (default: .)")
+    q.add_argument("--index", help="index file to read (default: <path>/%s)" % INDEX_FILENAME)
+    q.add_argument("--limit", type=int, default=20, help="maximum results (default: 20)")
+    q.add_argument("--json", action="store_true", help="print full matching entries as JSON")
+    q.set_defaults(func=cmd_search)
+
     args = parser.parse_args(argv)
-    if args.command == "generate":
-        from .generate import DEFAULT_PROVIDER
-        if getattr(args, "provider", None) is None:
-            args.provider = DEFAULT_PROVIDER
-        if getattr(args, "model", None) is None:
-            # Each provider has its own default model id.
-            if args.provider == "local":
-                from .local import DEFAULT_LOCAL_MODEL
-                args.model = DEFAULT_LOCAL_MODEL
-            else:
-                from .generate import DEFAULT_MODEL
-                args.model = DEFAULT_MODEL
     return args.func(args)
 
 

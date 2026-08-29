@@ -50,3 +50,21 @@ def probe(video: str | Path) -> dict[str, str]:
             except (ValueError, ZeroDivisionError):
                 pass
     return out
+
+
+def probe_duration_seconds(video: str | Path) -> float | None:
+    """Return video duration in seconds as float, or None if unavailable."""
+    if not shutil.which("ffprobe"):
+        return None
+    try:
+        raw = subprocess.run(
+            [
+                "ffprobe", "-v", "error", "-print_format", "json",
+                "-show_format", str(video),
+            ],
+            capture_output=True, text=True, timeout=30, check=True,
+        ).stdout
+        data = json.loads(raw)
+        return float(data["format"]["duration"])
+    except (subprocess.SubprocessError, json.JSONDecodeError, KeyError, ValueError, TypeError, OSError):
+        return None

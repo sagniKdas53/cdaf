@@ -19,8 +19,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install (core only — no AI SDK needed for validation)
-        run: pip install ./cli pytest
+      - name: Install (test extra adds pytest + requests for the OpenRouter tests)
+        run: pip install "./cli[test]"
       - name: Run tests
         run: python -m pytest cli/tests -q
       - name: Validate the example sidecar
