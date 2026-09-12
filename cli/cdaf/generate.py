@@ -367,17 +367,86 @@ def parse_sections(body: str) -> dict[str, list[str]]:
     return sections
 
 
+def _parse_segment_ts(segment_line: str) -> tuple[float, float] | None:
+    """Extract (start_seconds, end_seconds) from a [MM:SS.d-MM:SS.d] segment line.
+
+    Returns None if the line doesn't look like a well-formed segment. The segment
+    may have leading whitespace, a leading "- " bullet, or trailing text after
+    the timestamps — we only care about the prefix.
+    """
+    m = re.match(
+        r"^\s*\[(\d{1,2}):(\d{2})(?:\.\d+)?-(\d{1,2}):(\d{2})(?:\.\d+)?\]",
+        segment_line,
+    )
+    if not m:
+        return None
+    s_min, s_sec, e_min, e_sec = (int(m.group(i)) for i in (1, 2, 3, 4))
+    return (s_min * 60 + s_sec, e_min * 60 + e_sec)
+
+
+def _insert_chunk_boundary_gaps(
+    seg_lines: list[str], chunk_spans: list[tuple[float, float]]
+) -> list[str]:
+    """Sort segments chronologically and fill any gap between adjacent ones.
+
+    The chunked generation path offsets each chunk's timestamps to its absolute
+    start, then concatenates the per-chunk Segments sections. A consumer reading
+    the merged body sees segments like 0:00-1:05, then 4:00-8:05, with the 1:05
+    to 4:00 transition missing — a SPEC §2.2 violation ("contiguous coverage from
+    00:00.0 to the end"). This walker sorts all segments by start timestamp and
+    inserts a placeholder segment that names each gap, so consumers can see
+    exactly what was and wasn't described.
+
+    `chunk_spans` is accepted but currently unused — the fill is driven entirely
+    by segment-timestamp contiguity. It's kept on the signature for future use
+    (e.g. chunk-aware duplicate detection) without forcing every caller to
+    change again.
+    """
+    parsed: list[tuple[float, float, str]] = []
+    for line in seg_lines:
+        ts = _parse_segment_ts(line)
+        if ts is None:
+            continue
+        parsed.append((ts[0], ts[1], line))
+    if not parsed:
+        return seg_lines
+    parsed.sort()
+
+    filled: list[str] = []
+    prev_end = parsed[0][0]
+    for s, e, line in parsed:
+        if s - prev_end > 0.5:  # gap > 0.5s gets a placeholder
+            filled.append(
+                f"[{format_timestamp(prev_end)}-{format_timestamp(s)}] "
+                "(no description; chunk boundary gap)"
+            )
+        filled.append(line)
+        prev_end = max(prev_end, e)
+    return filled
+
+
 def merge_chunk_bodies(bodies_with_spans: list[tuple[str, float, float]]) -> str:
-    """Merge multiple chunk bodies into a single coherent CDAF body, preserving all sections."""
+    """Merge multiple chunk bodies into a single coherent CDAF body, preserving all sections.
+
+    `bodies_with_spans` is a list of `(body_markdown, chunk_start_seconds,
+    chunk_end_seconds)` tuples in chunk order. The chunk spans are used to
+    detect and fill any gap between adjacent chunks in the Segments section
+    (per SPEC §2.2 contiguity requirement); the per-chunk bodies are used for
+    every other section unchanged.
+    """
     if not bodies_with_spans:
         return ""
-    if len(bodies_with_spans) == 1:
-        return bodies_with_spans[0][0]
+    # Note: we don't short-circuit on len(bodies_with_spans) == 1, because even
+    # a single chunk's segments can be out of order or have internal gaps, and
+    # the gap-fill pass normalizes both. The cost of running the merge on a
+    # single chunk is just string ops — negligible compared to the LLM call.
 
     all_sections: dict[str, list[str]] = {}
     ordered_section_names: list[str] = []
+    chunk_spans: list[tuple[float, float]] = []
 
-    for body, _, _ in bodies_with_spans:
+    for body, start_s, end_s in bodies_with_spans:
+        chunk_spans.append((start_s, end_s))
         sec_map = parse_sections(body)
         for sec_name, lines in sec_map.items():
             if sec_name not in all_sections:
@@ -417,6 +486,7 @@ def merge_chunk_bodies(bodies_with_spans: list[tuple[str, float, float]]) -> str
             out.append("\n\n".join(sum_lines) if sum_lines else "Video overview across chronological segments.")
         elif sec == "Segments":
             seg_lines = [l.strip() for l in lines if l.strip().startswith("[")]
+            seg_lines = _insert_chunk_boundary_gaps(seg_lines, chunk_spans)
             out.extend(seg_lines if seg_lines else ["[00:00.0-00:00.0] Complete video duration."])
         elif sec == "Transcript":
             speech_lines = [l.strip() for l in lines if l.strip() and l.strip() != "(no speech)"]
